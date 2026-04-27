@@ -79,6 +79,22 @@ export default function Home() {
         alert('Copied to clipboard!');
     };
 
+    const downloadCSV = () => {
+        const headers = ['Name', 'Number', 'Source'];
+        const rows = leads.map(l => [l.name, l.number, l.source]);
+        const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", `wa_leads_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     return (
         <main className="min-h-screen bg-[#0f172a] text-white p-4 md:p-8 font-sans">
             <div className="max-w-6xl mx-auto">
@@ -190,24 +206,37 @@ export default function Home() {
                     {/* Results Area */}
                     <div className="lg:col-span-2">
                         <div className="bg-[#1e293b]/50 rounded-3xl border border-white/10 backdrop-blur-xl h-full flex flex-col overflow-hidden">
-                            <div className="p-6 border-b border-white/10 flex justify-between items-center bg-white/5">
+                            <div className="p-6 border-b border-white/10 flex flex-wrap justify-between items-center bg-white/5 gap-4">
                                 <h2 className="font-bold text-xl flex items-center gap-2">
                                     <span className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-400 text-sm">
                                         {leads.length}
                                     </span>
                                     Extracted Leads
                                 </h2>
-                                {leads.length > 0 && (
-                                    <button 
-                                        onClick={copyToClipboard}
-                                        className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                                        </svg>
-                                        COPY ALL
-                                    </button>
-                                )}
+                                <div className="flex gap-2">
+                                    {leads.length > 0 && (
+                                        <>
+                                            <button 
+                                                onClick={downloadCSV}
+                                                className="px-4 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-[#0f172a] rounded-xl text-sm font-bold transition-all flex items-center gap-2"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                </svg>
+                                                DOWNLOAD CSV
+                                            </button>
+                                            <button 
+                                                onClick={copyToClipboard}
+                                                className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                                </svg>
+                                                COPY ALL
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
                             </div>
                             
                             <div className="flex-1 overflow-auto max-h-[600px] p-2">

@@ -1,6 +1,7 @@
-import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore, DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
+import fs from 'fs';
 
 // Next.js hot-reloading safe globals
 declare global {
@@ -28,21 +29,35 @@ export const getWAState = () => {
 }
 
 export const connectWA = async () => {
-    if (global.waStatus === 'connecting' || global.waStatus === 'connected') return;
+    console.log('--- Attempting to Connect WhatsApp ---');
     
+    // Force cleanup of session folder to avoid 401 errors
+    const sessionDir = 'auth_session_data';
+    if (fs.existsSync(sessionDir)) {
+        console.log('Cleaning up old session directory...');
+        try {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+        } catch (e) {
+            console.error('Failed to delete session dir:', e);
+        }
+    }
+
     global.waStatus = 'connecting';
     global.waQrCode = null;
 
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys_app');
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
+    console.log('Creating WASocket...');
     const sock = makeWASocket({
         version,
-        logger: pino({ level: 'silent' }),
+        logger: pino({ level: 'info' }),
         printQRInTerminal: false,
         auth: state,
         syncFullHistory: true,
-        browser: ['SDK Extractor', 'Chrome', '1.0.0']
+        browser: ['Windows', 'Chrome', '122.0.6261.112'],
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000
     });
 
     global.waStore.bind(sock.ev);
@@ -52,17 +67,22 @@ export const connectWA = async () => {
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
+        console.log('Connection Update:', connection);
         
         if (qr) {
-            // Convert QR to Data URL for frontend
+            console.log('✅ NEW QR CODE GENERATED');
             global.waQrCode = await QRCode.toDataURL(qr);
         }
 
         if (connection === 'close') {
+            const reason = (lastDisconnect?.error as any)?.output?.statusCode;
+            console.log('❌ Connection Closed. Reason:', reason);
+            
             global.waStatus = 'disconnected';
             global.waSocket = null;
             global.waQrCode = null;
         } else if (connection === 'open') {
+            console.log('🚀 WHATSAPP CONNECTED SUCCESSFULLY!');
             global.waStatus = 'connected';
             global.waQrCode = null;
         }
@@ -138,11 +158,22 @@ export const extractLeads = async () => {
 }
 
 export const logoutWA = async () => {
-    if (global.waSocket) {
-        global.waSocket.logout();
-        global.waSocket = null;
+    console.log('Logging out...');
+    try {
+        if (global.waSocket) {
+            await global.waSocket.logout();
+            global.waSocket = null;
+        }
+    } catch (err) {
+        console.error('Logout error:', err);
     }
+    
     global.waStatus = 'disconnected';
     global.waQrCode = null;
     global.waLeads = [];
+
+    const sessionDir = 'auth_session_data';
+    if (fs.existsSync(sessionDir)) {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+    }
 }
