@@ -146,6 +146,7 @@ export default function Home() {
         let successCount = 0;
         let failedCount = 0;
         let sentCount = 0;
+        let lastError = '';
 
         setSmsProgress({ total: bulkCount, sent: 0, success: 0, failed: 0 });
 
@@ -167,10 +168,12 @@ export default function Home() {
                     successCount += chunk.length;
                 } else {
                     failedCount += chunk.length;
+                    lastError = data.error || 'Unknown API Error';
                     console.error('WinSMS Error:', data.error);
                 }
-            } catch (err) {
+            } catch (err: any) {
                 failedCount += chunk.length;
+                lastError = err.message;
             }
             sentCount += chunk.length;
             setSmsProgress({ total: bulkCount, sent: sentCount, success: successCount, failed: failedCount });
@@ -178,7 +181,8 @@ export default function Home() {
 
         setSendingSms(false);
         setTimeout(() => {
-            alert(`Campaign finished!\n-------------------\nTotal: ${bulkCount}\nSuccess: ${successCount}\nFailed: ${failedCount}`);
+            const errorSuffix = lastError ? `\nLast Error: ${lastError}` : '';
+            alert(`Campaign finished!\n-------------------\nTotal: ${bulkCount}\nSuccess: ${successCount}\nFailed: ${failedCount}${errorSuffix}`);
             setSmsProgress(null);
             if (successCount > 0) setSmsMessage('');
         }, 500);
