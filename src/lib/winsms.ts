@@ -61,12 +61,12 @@ export class WinSMS {
     try {
       const formattedNumbers = numbers.map(n => this.normalizeTunisianNumber(n)).join(',');
 
-      const url = new URL(this.BASE_URL);
+      const url = new URL(WinSMS.BASE_URL);
       url.searchParams.append('action', 'send-sms');
-      url.searchParams.append('api_key', this.API_KEY);
+      url.searchParams.append('api_key', WinSMS.API_KEY);
       url.searchParams.append('to', formattedNumbers);
-      if (this.SENDER_ID) {
-          url.searchParams.append('from', this.SENDER_ID);
+      if (WinSMS.SENDER_ID) {
+          url.searchParams.append('from', WinSMS.SENDER_ID);
       }
       url.searchParams.append('sms', message);
 
