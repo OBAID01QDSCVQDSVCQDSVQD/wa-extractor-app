@@ -129,8 +129,9 @@ export default function Home() {
 
     const sendSMS = async () => {
         if (!smsMessage) return alert('Please enter a message');
-        if (filteredLeads.length === 0) return alert('No numbers to send to');
-        if (!confirm(`Send this SMS to ${filteredLeads.length} numbers?`)) return;
+        const recipients = leads.filter(l => selectedIds.size > 0 ? selectedIds.has(l.id) : filteredLeads.some(fl => fl.id === l.id));
+        if (recipients.length === 0) return alert('No numbers to send to');
+        if (!confirm(`Send this SMS to ${recipients.length} numbers?`)) return;
 
         setSendingSms(true);
         try {
@@ -138,7 +139,7 @@ export default function Home() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    numbers: leads.filter(l => selectedIds.has(l.id)).map(l => l.number),
+                    numbers: recipients.map(l => l.number),
                     message: smsMessage
                 })
             });
