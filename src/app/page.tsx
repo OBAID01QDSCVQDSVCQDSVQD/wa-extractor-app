@@ -419,7 +419,9 @@ export default function Home() {
                                         </div>
                                         <div>
                                             <h2 className="text-2xl font-black text-slate-900">Create SMS Campaign</h2>
-                                            <p className="text-slate-500 text-sm">Broadcasting to {filteredLeads.length} recipients based on your filters.</p>
+                                            <p className="text-slate-500 text-sm">
+                                                Broadcasting to {selectedIds.size > 0 ? selectedIds.size : filteredLeads.length} recipients.
+                                            </p>
                                         </div>
                                     </div>
 
@@ -452,7 +454,7 @@ export default function Home() {
                                             </>
                                         ) : (
                                             <>
-                                                LAUNCH CAMPAIGN TO {filteredLeads.length} RECIPIENTS
+                                                LAUNCH CAMPAIGN TO {selectedIds.size > 0 ? selectedIds.size : filteredLeads.length} RECIPIENTS
                                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                                                 </svg>
