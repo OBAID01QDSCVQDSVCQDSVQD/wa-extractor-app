@@ -19,6 +19,8 @@ export default function Home() {
     const [toDate, setToDate] = useState<string>('');
     const [showUnsaved, setShowUnsaved] = useState<boolean>(false);
     const [countryPrefix, setCountryPrefix] = useState<string>('');
+    const [smsMessage, setSmsMessage] = useState<string>('');
+    const [sendingSms, setSendingSms] = useState<boolean>(false);
     const [loading, setLoading] = useState(false);
     const [extracting, setExtracting] = useState(false);
 
@@ -131,6 +133,35 @@ export default function Home() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    };
+
+    const sendSMS = async () => {
+        if (!smsMessage) return alert('Please enter a message');
+        if (filteredLeads.length === 0) return alert('No numbers to send to');
+        if (!confirm(`Send this SMS to ${filteredLeads.length} numbers?`)) return;
+
+        setSendingSms(true);
+        try {
+            const res = await fetch('/api/sms', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    numbers: filteredLeads.map(l => l.number),
+                    message: smsMessage
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('SMS Campaign started successfully!');
+                setSmsMessage('');
+            } else {
+                alert('Failed to send SMS: ' + data.error);
+            }
+        } catch (err) {
+            alert('Error sending SMS');
+        } finally {
+            setSendingSms(false);
+        }
     };
 
     return (
@@ -353,6 +384,59 @@ export default function Home() {
                                 )}
                             </div>
                         </div>
+
+                        {/* SMS Campaign Panel */}
+                        <div className="mt-8 bg-[#1e293b]/50 p-8 rounded-3xl border border-emerald-500/20 backdrop-blur-xl">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-400">
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold">SMS Campaign</h2>
+                                    <p className="text-slate-400 text-sm">Send a message to the {filteredLeads.length} filtered leads.</p>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                <textarea 
+                                    value={smsMessage}
+                                    onChange={(e) => setSmsMessage(e.target.value)}
+                                    placeholder="Write your SMS message here... (e.g. Hello from SDK Bâtiment!)"
+                                    className="w-full h-32 bg-white/5 border border-white/10 rounded-2xl p-4 text-white placeholder:text-slate-600 focus:border-emerald-500/50 outline-none transition-all resize-none"
+                                />
+                                
+                                <div className="flex justify-between items-center">
+                                    <div className="text-xs text-slate-500">
+                                        {smsMessage.length} characters • {Math.ceil(smsMessage.length / 160)} SMS per lead
+                                    </div>
+                                    <button 
+                                        onClick={sendSMS}
+                                        disabled={sendingSms || filteredLeads.length === 0 || !smsMessage}
+                                        className="px-8 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 text-[#0f172a] font-black rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+                                    >
+                                        {sendingSms ? (
+                                            <>
+                                                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                SENDING...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                                </svg>
+                                                SEND SMS TO {filteredLeads.length} LEADS
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
