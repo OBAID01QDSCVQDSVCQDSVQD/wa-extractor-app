@@ -104,7 +104,6 @@ export const extractLeads = async () => {
     if (global.waStatus !== 'connected' || !global.waClient) throw new Error("Not connected");
     
     console.log('Extracting leads...');
-    let leads: any[] = [];
     
     const chats = await global.waClient.getChats();
     const contacts = await global.waClient.getContacts();
@@ -116,47 +115,74 @@ export const extractLeads = async () => {
 
     // 1. Process Chats
     for (const chat of chats) {
-        if (chat.isGroup) continue;
-
-        const contact = contactMap.get(chat.id._serialized);
-        let realNumber = contact?.number;
+        const timestamp = chat.timestamp ? chat.timestamp * 1000 : Date.now();
         
-        // If number is still missing, try to extract from name if it's formatted like a number
-        if (!realNumber) {
-            if (chat.name && chat.name.startsWith('+')) {
-                realNumber = chat.name.replace(/\D/g, '');
-            } else {
-                // Fallback to user ID, but remove any suffix
-                realNumber = chat.id.user.split(':')[0];
+        if (chat.isGroup) {
+            // Process group participants
+            for (const participant of chat.participants || []) {
+                const pContact = contactMap.get(participant.id._serialized);
+                let pNumber = pContact?.number || participant.id.user.split(':')[0];
+                
+                if (pNumber) {
+                    if (!leadsMap.has(pNumber)) {
+                        leadsMap.set(pNumber, {
+                            id: participant.id._serialized,
+                            name: pContact?.name || 'Unknown',
+                            number: pNumber,
+                            timestamp: timestamp,
+                            source: `GROUP`,
+                            isSaved: !!pContact?.isMyContact
+                        });
+                    }
+                }
             }
-        }
+        } else {
+            // Process individual chat
+            const contact = contactMap.get(chat.id._serialized);
+            let realNumber = contact?.number;
+            
+            if (!realNumber) {
+                if (chat.name && chat.name.startsWith('+')) {
+                    realNumber = chat.name.replace(/\D/g, '');
+                } else {
+                    realNumber = chat.id.user.split(':')[0];
+                }
+            }
 
-        if (realNumber) {
-            leadsMap.set(realNumber, {
-                id: chat.id._serialized,
-                name: contact?.name || chat.name || 'Unknown',
-                number: realNumber,
-                timestamp: chat.timestamp ? chat.timestamp * 1000 : Date.now(),
-                source: 'INDIVIDUAL CHAT',
-                isSaved: !!contact?.isMyContact
-            });
+            if (realNumber) {
+                leadsMap.set(realNumber, {
+                    id: chat.id._serialized,
+                    name: contact?.name || chat.name || 'Unknown',
+                    number: realNumber,
+                    timestamp: timestamp,
+                    source: 'INDIVIDUAL CHAT',
+                    isSaved: !!contact?.isMyContact
+                });
+            }
         }
     }
 
     // 2. Process Address Book Contacts
     for (const contact of contacts) {
-                    existing.name = lead.name;
-                }
-                if (existing.timestamp < lead.timestamp) {
-                    existing.timestamp = lead.timestamp;
-                }
-                if (lead.source.startsWith('Group:') && !existing.source.includes(lead.source)) {
-                    existing.source += ` | ${lead.source}`;
-                }
+        if (contact.isMyContact && contact.name && contact.number) {
+            if (!leadsMap.has(contact.number)) {
+                leadsMap.set(contact.number, {
+                    id: contact.id._serialized,
+                    name: contact.name,
+                    number: contact.number,
+                    timestamp: 0,
+                    source: 'ADDRESS BOOK',
+                    isSaved: true
+                });
+            } else {
+                const existing = leadsMap.get(contact.number);
+                existing.name = contact.name;
+                existing.isSaved = true;
             }
         }
     }
 
+    const uniqueLeads = Array.from(leadsMap.values());
     global.waLeads = uniqueLeads;
     return uniqueLeads;
 }
