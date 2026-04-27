@@ -107,57 +107,44 @@ export const extractLeads = async () => {
     let leads: any[] = [];
     
     const chats = await global.waClient.getChats();
-    console.log(`Found ${chats.length} chats.`);
-
-    for (const chat of chats) {
-        const timestamp = chat.timestamp * 1000; // Convert to ms
-        if (chat.isGroup) {
-            // Group participants
-            for (const participant of chat.participants) {
-                leads.push({
-                    source: `Group: ${chat.name}`,
-                    id: participant.id._serialized,
-                    name: 'Unknown',
-                    number: participant.id.user,
-                    timestamp: timestamp
-                });
-            }
-        } else {
-            // Individual chat
-            leads.push({
-                source: 'Individual Chat',
-                id: chat.id._serialized,
-                name: chat.name || 'Unknown',
-                number: chat.id.user,
-                timestamp: timestamp
-            });
-        }
-    }
-    
     const contacts = await global.waClient.getContacts();
-    for (const contact of contacts) {
-        if (!contact.isGroup) {
-            leads.push({
-                source: 'Address Book',
-                id: contact.id._serialized,
-                name: contact.name || contact.pushname || 'Unknown',
-                number: contact.id.user,
-                timestamp: 0 
+    
+    const contactMap = new Map();
+    contacts.forEach((c: any) => contactMap.set(c.id._serialized, c));
+
+    const leadsMap = new Map();
+
+    // 1. Process Chats
+    for (const chat of chats) {
+        if (chat.isGroup) continue;
+
+        const contact = contactMap.get(chat.id._serialized);
+        let realNumber = contact?.number;
+        
+        // If number is still missing, try to extract from name if it's formatted like a number
+        if (!realNumber) {
+            if (chat.name && chat.name.startsWith('+')) {
+                realNumber = chat.name.replace(/\D/g, '');
+            } else {
+                // Fallback to user ID, but remove any suffix
+                realNumber = chat.id.user.split(':')[0];
+            }
+        }
+
+        if (realNumber) {
+            leadsMap.set(realNumber, {
+                id: chat.id._serialized,
+                name: contact?.name || chat.name || 'Unknown',
+                number: realNumber,
+                timestamp: chat.timestamp ? chat.timestamp * 1000 : Date.now(),
+                source: 'INDIVIDUAL CHAT',
+                isSaved: !!contact?.isMyContact
             });
         }
     }
 
-    const uniqueLeads: any[] = [];
-    const seenIds = new Set();
-    
-    for (const lead of leads) {
-        if (!seenIds.has(lead.id)) {
-            seenIds.add(lead.id);
-            uniqueLeads.push(lead);
-        } else {
-            const existing = uniqueLeads.find(l => l.id === lead.id);
-            if (existing) {
-                if (existing.name === 'Unknown' && lead.name !== 'Unknown') {
+    // 2. Process Address Book Contacts
+    for (const contact of contacts) {
                     existing.name = lead.name;
                 }
                 if (existing.timestamp < lead.timestamp) {
