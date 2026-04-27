@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     experimental: {
-        serverComponentsExternalPackages: ['@whiskeysockets/baileys', 'pino'],
+        serverComponentsExternalPackages: ['whatsapp-web.js', 'puppeteer', 'pino'],
     },
     typescript: {
         ignoreBuildErrors: true,

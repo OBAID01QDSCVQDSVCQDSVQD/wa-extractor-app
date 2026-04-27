@@ -8,14 +8,34 @@ interface Lead {
     name: string;
     number: string;
     source: string;
+    timestamp: number;
 }
 
 export default function Home() {
     const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [leads, setLeads] = useState<Lead[]>([]);
+    const [fromDate, setFromDate] = useState<string>('');
+    const [toDate, setToDate] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [extracting, setExtracting] = useState(false);
+
+    const filteredLeads = leads.filter(lead => {
+        if (!fromDate && !toDate) return true;
+        if (lead.timestamp === 0) return !fromDate && !toDate; // Address book contacts with no timestamp
+        
+        const leadDate = new Date(lead.timestamp);
+        const start = fromDate ? new Date(fromDate) : null;
+        const end = toDate ? new Date(toDate) : null;
+        
+        if (start && leadDate < start) return false;
+        if (end) {
+            const endOfDay = new Date(end);
+            endOfDay.setHours(23, 59, 59, 999);
+            if (leadDate > endOfDay) return false;
+        }
+        return true;
+    });
 
     const fetchStatus = useCallback(async () => {
         try {
@@ -74,14 +94,19 @@ export default function Home() {
     };
 
     const copyToClipboard = () => {
-        const text = leads.map(l => `${l.name}\t${l.number}`).join('\n');
+        const text = filteredLeads.map(l => `${l.name}\t${l.number}`).join('\n');
         navigator.clipboard.writeText(text);
         alert('Copied to clipboard!');
     };
 
     const downloadCSV = () => {
-        const headers = ['Name', 'Number', 'Source'];
-        const rows = leads.map(l => [l.name, l.number, l.source]);
+        const headers = ['Name', 'Number', 'Source', 'Date'];
+        const rows = filteredLeads.map(l => [
+            l.name, 
+            l.number, 
+            l.source, 
+            l.timestamp > 0 ? new Date(l.timestamp).toLocaleDateString() : 'N/A'
+        ]);
         const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
         
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -209,13 +234,30 @@ export default function Home() {
                             <div className="p-6 border-b border-white/10 flex flex-wrap justify-between items-center bg-white/5 gap-4">
                                 <h2 className="font-bold text-xl flex items-center gap-2">
                                     <span className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-400 text-sm">
-                                        {leads.length}
+                                        {filteredLeads.length}
                                     </span>
                                     Extracted Leads
                                 </h2>
-                                <div className="flex gap-2">
+                                <div className="flex flex-wrap gap-2">
                                     {leads.length > 0 && (
                                         <>
+                                            <div className="flex items-center gap-2 bg-white/5 p-1 rounded-xl border border-white/10 mr-2">
+                                                <input 
+                                                    type="date" 
+                                                    value={fromDate}
+                                                    onChange={(e) => setFromDate(e.target.value)}
+                                                    className="bg-transparent text-xs text-emerald-400 outline-none p-1 cursor-pointer"
+                                                    title="From Date"
+                                                />
+                                                <span className="text-slate-600 text-xs">to</span>
+                                                <input 
+                                                    type="date" 
+                                                    value={toDate}
+                                                    onChange={(e) => setToDate(e.target.value)}
+                                                    className="bg-transparent text-xs text-emerald-400 outline-none p-1 cursor-pointer"
+                                                    title="To Date"
+                                                />
+                                            </div>
                                             <button 
                                                 onClick={downloadCSV}
                                                 className="px-4 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-[#0f172a] rounded-xl text-sm font-bold transition-all flex items-center gap-2"
@@ -240,21 +282,25 @@ export default function Home() {
                             </div>
                             
                             <div className="flex-1 overflow-auto max-h-[600px] p-2">
-                                {leads.length > 0 ? (
+                                {filteredLeads.length > 0 ? (
                                     <table className="w-full text-left border-separate border-spacing-y-2">
                                         <thead>
                                             <tr className="text-slate-500 text-xs uppercase tracking-wider">
                                                 <th className="px-4 py-2">Name</th>
                                                 <th className="px-4 py-2">Number</th>
                                                 <th className="px-4 py-2">Source</th>
+                                                <th className="px-4 py-2">Last Active</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {leads.map((lead, i) => (
+                                            {filteredLeads.map((lead, i) => (
                                                 <tr key={i} className="bg-white/5 hover:bg-white/10 transition-colors rounded-xl overflow-hidden group">
                                                     <td className="px-4 py-4 font-bold rounded-l-xl text-emerald-400">{lead.name}</td>
                                                     <td className="px-4 py-4 text-slate-300 font-mono">{lead.number}</td>
-                                                    <td className="px-4 py-4 text-slate-500 text-xs truncate max-w-[200px] rounded-r-xl">{lead.source}</td>
+                                                    <td className="px-4 py-4 text-slate-500 text-xs truncate max-w-[200px]">{lead.source}</td>
+                                                    <td className="px-4 py-4 text-slate-600 text-xs rounded-r-xl">
+                                                        {lead.timestamp > 0 ? new Date(lead.timestamp).toLocaleDateString() : 'N/A'}
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>

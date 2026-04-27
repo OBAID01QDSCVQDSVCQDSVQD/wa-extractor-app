@@ -1,14 +1,12 @@
-import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore, DisconnectReason } from '@whiskeysockets/baileys';
-import pino from 'pino';
+import { Client, LocalAuth } from 'whatsapp-web.js';
 import QRCode from 'qrcode';
 import fs from 'fs';
 
 // Next.js hot-reloading safe globals
 declare global {
-  var waSocket: any;
+  var waClient: any;
   var waQrCode: string | null;
   var waStatus: 'disconnected' | 'connecting' | 'connected';
-  var waStore: any;
   var waLeads: any[];
 }
 
@@ -16,9 +14,6 @@ declare global {
 if (!global.waStatus) global.waStatus = 'disconnected';
 if (!global.waQrCode) global.waQrCode = null;
 if (!global.waLeads) global.waLeads = [];
-if (!global.waStore) {
-    global.waStore = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
-}
 
 export const getWAState = () => {
     return {
@@ -29,106 +24,116 @@ export const getWAState = () => {
 }
 
 export const connectWA = async () => {
-    console.log('--- Attempting to Connect WhatsApp ---');
-    
-    // Force cleanup of session folder to avoid 401 errors
-    const sessionDir = 'auth_session_data';
-    if (fs.existsSync(sessionDir)) {
-        console.log('Cleaning up old session directory...');
-        try {
-            fs.rmSync(sessionDir, { recursive: true, force: true });
-        } catch (e) {
-            console.error('Failed to delete session dir:', e);
-        }
-    }
+    if (global.waStatus === 'connected' || global.waStatus === 'connecting') return;
 
+    console.log('--- Initializing WhatsApp Web Engine ---');
     global.waStatus = 'connecting';
     global.waQrCode = null;
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    const { version } = await fetchLatestBaileysVersion();
-
-    console.log('Creating WASocket...');
-    const sock = makeWASocket({
-        version,
-        logger: pino({ level: 'info' }),
-        printQRInTerminal: false,
-        auth: state,
-        syncFullHistory: true,
-        browser: ['Windows', 'Chrome', '122.0.6261.112'],
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 60000
-    });
-
-    global.waStore.bind(sock.ev);
-    global.waSocket = sock;
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        console.log('Connection Update:', connection);
-        
-        if (qr) {
-            console.log('✅ NEW QR CODE GENERATED');
-            global.waQrCode = await QRCode.toDataURL(qr);
+    const possiblePaths = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+    ];
+    
+    let executablePath = '';
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            executablePath = p;
+            break;
         }
+    }
 
-        if (connection === 'close') {
-            const reason = (lastDisconnect?.error as any)?.output?.statusCode;
-            console.log('❌ Connection Closed. Reason:', reason);
-            
-            global.waStatus = 'disconnected';
-            global.waSocket = null;
-            global.waQrCode = null;
-        } else if (connection === 'open') {
-            console.log('🚀 WHATSAPP CONNECTED SUCCESSFULLY!');
-            global.waStatus = 'connected';
-            global.waQrCode = null;
+    const client = new Client({
+        authStrategy: new LocalAuth({
+            clientId: "sdk-final-" + Date.now()
+        }),
+        puppeteer: {
+            executablePath: executablePath || undefined,
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         }
     });
+
+    global.waClient = client;
+
+    client.on('qr', async (qr) => {
+        console.log('✅ NEW QR CODE GENERATED');
+        global.waQrCode = await QRCode.toDataURL(qr);
+    });
+
+    client.on('ready', () => {
+        console.log('🚀 WHATSAPP READY!');
+        global.waStatus = 'connected';
+        global.waQrCode = null;
+    });
+
+    client.on('authenticated', () => {
+        console.log('Authenticated successfully');
+    });
+
+    client.on('auth_failure', (msg) => {
+        console.error('Auth failure:', msg);
+        global.waStatus = 'disconnected';
+    });
+
+    client.on('disconnected', (reason) => {
+        console.log('Client disconnected:', reason);
+        global.waStatus = 'disconnected';
+        global.waClient = null;
+    });
+
+    try {
+        await client.initialize();
+    } catch (err) {
+        console.error('Initialization error:', err);
+        global.waStatus = 'disconnected';
+    }
 }
 
 export const extractLeads = async () => {
-    if (global.waStatus !== 'connected' || !global.waSocket) throw new Error("Not connected");
+    if (global.waStatus !== 'connected' || !global.waClient) throw new Error("Not connected");
     
+    console.log('Extracting leads...');
     let leads: any[] = [];
-    const chats = global.waStore.chats.all();
     
+    const chats = await global.waClient.getChats();
+    console.log(`Found ${chats.length} chats.`);
+
     for (const chat of chats) {
-        if (chat.id.endsWith('@s.whatsapp.net') || chat.id.endsWith('@c.us')) {
-            leads.push({
-                source: 'Personal Chat',
-                id: chat.id,
-                name: chat.name || 'Unknown',
-                number: chat.id.split('@')[0]
-            });
-        } else if (chat.id.endsWith('@g.us')) {
-            try {
-                const groupMetadata = await global.waSocket.groupMetadata(chat.id);
-                for (const participant of groupMetadata.participants) {
-                    leads.push({
-                        source: `Group: ${groupMetadata.subject || chat.name || chat.id}`,
-                        id: participant.id,
-                        name: 'Unknown',
-                        number: participant.id.split('@')[0]
-                    });
-                }
-            } catch (error) {
-               // ignore
+        const timestamp = chat.timestamp * 1000; // Convert to ms
+        if (chat.isGroup) {
+            // Group participants
+            for (const participant of chat.participants) {
+                leads.push({
+                    source: `Group: ${chat.name}`,
+                    id: participant.id._serialized,
+                    name: 'Unknown',
+                    number: participant.id.user,
+                    timestamp: timestamp
+                });
             }
+        } else {
+            // Individual chat
+            leads.push({
+                source: 'Individual Chat',
+                id: chat.id._serialized,
+                name: chat.name || 'Unknown',
+                number: chat.id.user,
+                timestamp: timestamp
+            });
         }
     }
     
-    const contacts = global.waStore.contacts;
-    for (const jid of Object.keys(contacts)) {
-        const contact = contacts[jid];
-        if (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@c.us')) {
+    const contacts = await global.waClient.getContacts();
+    for (const contact of contacts) {
+        if (!contact.isGroup) {
             leads.push({
                 source: 'Address Book',
-                id: jid,
-                name: contact.name || contact.notify || contact.verifiedName || 'Unknown',
-                number: jid.split('@')[0]
+                id: contact.id._serialized,
+                name: contact.name || contact.pushname || 'Unknown',
+                number: contact.id.user,
+                timestamp: 0 // Contacts might not have a timestamp
             });
         }
     }
@@ -146,6 +151,9 @@ export const extractLeads = async () => {
                 if (existing.name === 'Unknown' && lead.name !== 'Unknown') {
                     existing.name = lead.name;
                 }
+                if (existing.timestamp < lead.timestamp) {
+                    existing.timestamp = lead.timestamp;
+                }
                 if (lead.source.startsWith('Group:') && !existing.source.includes(lead.source)) {
                     existing.source += ` | ${lead.source}`;
                 }
@@ -159,21 +167,20 @@ export const extractLeads = async () => {
 
 export const logoutWA = async () => {
     console.log('Logging out...');
-    try {
-        if (global.waSocket) {
-            await global.waSocket.logout();
-            global.waSocket = null;
-        }
-    } catch (err) {
-        console.error('Logout error:', err);
+    if (global.waClient) {
+        try {
+            await global.waClient.logout();
+            await global.waClient.destroy();
+        } catch (e) {}
+        global.waClient = null;
     }
-    
     global.waStatus = 'disconnected';
     global.waQrCode = null;
     global.waLeads = [];
-
-    const sessionDir = 'auth_session_data';
-    if (fs.existsSync(sessionDir)) {
-        fs.rmSync(sessionDir, { recursive: true, force: true });
+    
+    // Cleanup local auth folder if exists
+    const authPath = './.wwebjs_auth';
+    if (fs.existsSync(authPath)) {
+        fs.rmSync(authPath, { recursive: true, force: true });
     }
 }
