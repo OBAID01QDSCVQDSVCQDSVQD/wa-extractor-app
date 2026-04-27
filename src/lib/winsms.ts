@@ -8,10 +8,8 @@ export class WinSMS {
   private static BASE_URL = 'https://www.winsmspro.com/sms/sms/api';
   private static API_KEY = "fTUG90ao7SI0En1o4Bz0b6g2Xkl1KR4JRHSZJq6KsggzAJKSRXXMUy8Ld18x";
   
-  // We will NOT send the SENDER ID by default. 
-  // WinSMS will automatically use your default approved sender ID on your account.
-  // This prevents the server crash we were seeing.
-  private static SENDER_ID = ""; 
+  // WinSMS requires the Sender ID to be explicitly provided.
+  private static SENDER_ID = "SdkBatimant"; 
 
   public static normalizeTunisianNumber(phone: string): string {
     const digits = String(phone).replace(/\D/g, '');
