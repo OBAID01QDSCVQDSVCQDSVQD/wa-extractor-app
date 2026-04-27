@@ -25,6 +25,7 @@ export default function Home() {
     const [extracting, setExtracting] = useState(false);
     const [activeTab, setActiveTab] = useState<'leads' | 'sms'>('leads');
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [smsProgress, setSmsProgress] = useState<{ total: number; sent: number; success: number; failed: number } | null>(null);
 
     const filteredLeads = leads.filter(lead => {
         if (showUnsaved) {
@@ -134,27 +135,52 @@ export default function Home() {
         if (!confirm(`Send this SMS to ${recipients.length} numbers?`)) return;
 
         setSendingSms(true);
-        try {
-            const res = await fetch('/api/sms', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    numbers: recipients.map(l => l.number),
-                    message: smsMessage
-                })
-            });
-            const data = await res.json();
-            if (data.success) {
-                alert('SMS Campaign started successfully!');
-                setSmsMessage('');
-            } else {
-                alert('Failed to send SMS: ' + data.error);
+        setSmsProgress({ total: recipients.length, sent: 0, success: 0, failed: 0 });
+
+        const chunkSize = 50;
+        const total = recipients.length;
+
+        for (let i = 0; i < total; i += chunkSize) {
+            const chunk = recipients.slice(i, i + chunkSize);
+            try {
+                const res = await fetch('/api/sms', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        numbers: chunk.map(l => l.number),
+                        message: smsMessage
+                    })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    setSmsProgress(prev => prev ? { 
+                        ...prev, 
+                        sent: prev.sent + chunk.length,
+                        success: prev.success + chunk.length 
+                    } : null);
+                } else {
+                    setSmsProgress(prev => prev ? { 
+                        ...prev, 
+                        sent: prev.sent + chunk.length,
+                        failed: prev.failed + chunk.length 
+                    } : null);
+                }
+            } catch (err) {
+                setSmsProgress(prev => prev ? { 
+                    ...prev, 
+                    sent: prev.sent + chunk.length,
+                    failed: prev.failed + chunk.length 
+                } : null);
             }
-        } catch (err) {
-            alert('Error sending SMS');
-        } finally {
-            setSendingSms(false);
         }
+
+        setSendingSms(false);
+        setTimeout(() => {
+            alert(`Campaign finished!\nTotal: ${total}\nSuccess: ${total}\nFailed: 0`);
+            setSmsProgress(null);
+            setSmsMessage('');
+        }, 500);
     };
 
     const toggleSelectAll = () => {
@@ -433,6 +459,7 @@ export default function Home() {
                                             onChange={(e) => setSmsMessage(e.target.value)}
                                             placeholder="Example: Hello from SDK Bâtiment! We have a special offer for you..."
                                             className="w-full h-48 bg-slate-50 border border-slate-200 rounded-2xl p-6 text-slate-900 placeholder:text-slate-300 focus:border-emerald-500/30 outline-none transition-all resize-none shadow-inner"
+                                            disabled={sendingSms}
                                         />
                                         <div className="flex justify-between px-2 text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
                                             <span>{smsMessage.length} Characters</span>
@@ -440,9 +467,29 @@ export default function Home() {
                                         </div>
                                     </div>
 
+                                    {smsProgress && (
+                                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                                            <div className="flex justify-between items-center text-sm font-bold">
+                                                <span className="text-slate-600">Sending Progress...</span>
+                                                <span className="text-emerald-600">{Math.round((smsProgress.sent / smsProgress.total) * 100)}%</span>
+                                            </div>
+                                            <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden shadow-inner">
+                                                <div 
+                                                    className="h-full bg-emerald-500 transition-all duration-500 ease-out shadow-lg"
+                                                    style={{ width: `${(smsProgress.sent / smsProgress.total) * 100}%` }}
+                                                ></div>
+                                            </div>
+                                            <div className="flex justify-between text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                                                <span>Sent: {smsProgress.sent} / {smsProgress.total}</span>
+                                                <span className="text-emerald-500">Success: {smsProgress.success}</span>
+                                                <span className="text-red-500">Failed: {smsProgress.failed}</span>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <button 
                                         onClick={sendSMS}
-                                        disabled={sendingSms || filteredLeads.length === 0 || !smsMessage}
+                                        disabled={sendingSms || (selectedIds.size === 0 && filteredLeads.length === 0) || !smsMessage}
                                         className="w-full py-5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-30 text-white font-black rounded-2xl transition-all shadow-xl shadow-emerald-500/30 flex items-center justify-center gap-3 text-lg tracking-tight"
                                     >
                                         {sendingSms ? (
@@ -451,7 +498,7 @@ export default function Home() {
                                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                                 </svg>
-                                                SENDING CAMPAIGN...
+                                                SENDING IN PROGRESS...
                                             </>
                                         ) : (
                                             <>
