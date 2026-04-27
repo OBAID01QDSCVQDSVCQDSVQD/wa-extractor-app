@@ -17,10 +17,23 @@ export default function Home() {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [fromDate, setFromDate] = useState<string>('');
     const [toDate, setToDate] = useState<string>('');
+    const [showUnsaved, setShowUnsaved] = useState<boolean>(false);
+    const [countryPrefix, setCountryPrefix] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [extracting, setExtracting] = useState(false);
 
     const filteredLeads = leads.filter(lead => {
+        // Unsaved filter: name is unknown or name is just the number
+        if (showUnsaved) {
+            const isSaved = lead.name !== 'Unknown' && !lead.name.startsWith('+');
+            if (isSaved) return false;
+        }
+
+        // Country filter
+        if (countryPrefix && !lead.number.startsWith(countryPrefix)) {
+            return false;
+        }
+
         if (!fromDate && !toDate) return true;
         if (lead.timestamp === 0) return !fromDate && !toDate; // Address book contacts with no timestamp
         
@@ -241,6 +254,29 @@ export default function Home() {
                                 <div className="flex flex-wrap gap-2">
                                     {leads.length > 0 && (
                                         <>
+                                            <div className="flex items-center gap-4 bg-white/5 p-2 px-4 rounded-xl border border-white/10 mr-2">
+                                                <label className="flex items-center gap-2 cursor-pointer group">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={showUnsaved}
+                                                        onChange={(e) => setShowUnsaved(e.target.checked)}
+                                                        className="w-4 h-4 rounded border-white/20 bg-transparent text-emerald-500 focus:ring-emerald-500"
+                                                    />
+                                                    <span className="text-xs text-slate-400 group-hover:text-emerald-400 transition-colors">Unsaved Only</span>
+                                                </label>
+                                                <div className="w-px h-4 bg-white/10"></div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Country:</span>
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="216"
+                                                        value={countryPrefix}
+                                                        onChange={(e) => setCountryPrefix(e.target.value)}
+                                                        className="bg-transparent text-xs text-emerald-400 outline-none w-10 placeholder:text-slate-700"
+                                                    />
+                                                </div>
+                                            </div>
+
                                             <div className="flex items-center gap-2 bg-white/5 p-1 rounded-xl border border-white/10 mr-2">
                                                 <input 
                                                     type="date" 
