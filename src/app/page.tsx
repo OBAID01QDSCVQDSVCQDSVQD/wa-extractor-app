@@ -24,6 +24,7 @@ export default function Home() {
     const [loading, setLoading] = useState(false);
     const [extracting, setExtracting] = useState(false);
     const [activeTab, setActiveTab] = useState<'leads' | 'sms'>('leads');
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const filteredLeads = leads.filter(lead => {
         if (showUnsaved) {
@@ -53,6 +54,9 @@ export default function Home() {
             const data = await res.json();
             setStatus(data.status);
             setQrCode(data.qrCode);
+            if (data.leads && data.leads.length > 0) {
+                setLeads(data.leads);
+            }
         } catch (err) {
             console.error('Failed to fetch status', err);
         }
@@ -134,7 +138,7 @@ export default function Home() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    numbers: filteredLeads.map(l => l.number),
+                    numbers: leads.filter(l => selectedIds.has(l.id)).map(l => l.number),
                     message: smsMessage
                 })
             });
@@ -150,6 +154,24 @@ export default function Home() {
         } finally {
             setSendingSms(false);
         }
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.size === filteredLeads.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(filteredLeads.map(l => l.id)));
+        }
+    };
+
+    const toggleSelectLead = (id: string) => {
+        const newSelected = new Set(selectedIds);
+        if (newSelected.has(id)) {
+            newSelected.delete(id);
+        } else {
+            newSelected.add(id);
+        }
+        setSelectedIds(newSelected);
     };
 
     return (
@@ -201,6 +223,16 @@ export default function Home() {
                                 <div className="bg-white p-3 rounded-xl border border-slate-200">
                                     <Image src={qrCode} alt="QR" width={200} height={200} className="w-full h-auto" />
                                     <p className="text-[10px] text-slate-400 mt-2 text-center italic">Scan to link device</p>
+                                </div>
+                            )}
+
+                            {status === 'connecting' && !qrCode && (
+                                <div className="flex flex-col items-center gap-2 py-4">
+                                    <svg className="animate-spin w-6 h-6 text-amber-500" viewBox="0 0 24 24" fill="none">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                                    </svg>
+                                    <p className="text-[11px] text-slate-400 text-center">Finalizing connection...</p>
                                 </div>
                             )}
 
@@ -287,6 +319,14 @@ export default function Home() {
                             <span className="bg-emerald-100 text-emerald-600 text-[10px] font-black px-2 py-1 rounded-md">
                                 {filteredLeads.length} RESULTS
                             </span>
+                            {activeTab === 'leads' && filteredLeads.length > 0 && (
+                                <button 
+                                    onClick={toggleSelectAll}
+                                    className="ml-4 text-[10px] font-bold text-emerald-600 border border-emerald-200 px-3 py-1 rounded-full hover:bg-emerald-50 transition-all"
+                                >
+                                    {selectedIds.size === filteredLeads.length ? 'DESELECT ALL' : `SELECT ALL (${filteredLeads.length})`}
+                                </button>
+                            )}
                         </div>
 
                         <div className="flex items-center gap-3">
@@ -327,8 +367,19 @@ export default function Home() {
                             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 max-w-6xl mx-auto">
                                 {filteredLeads.length > 0 ? (
                                     filteredLeads.map((lead, i) => (
-                                        <div key={i} className="group bg-white hover:bg-slate-50 border border-slate-200 hover:border-emerald-500/30 rounded-2xl p-6 transition-all flex items-center justify-between shadow-sm hover:shadow-md">
+                                        <div 
+                                            key={i} 
+                                            onClick={() => toggleSelectLead(lead.id)}
+                                            className={`group cursor-pointer bg-white border ${selectedIds.has(lead.id) ? 'border-emerald-500 ring-1 ring-emerald-500' : 'border-slate-200'} hover:border-emerald-500/30 rounded-2xl p-6 transition-all flex items-center justify-between shadow-sm hover:shadow-md`}
+                                        >
                                             <div className="flex items-center gap-4">
+                                                <div className={`w-5 h-5 rounded border ${selectedIds.has(lead.id) ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'} flex items-center justify-center transition-all`}>
+                                                    {selectedIds.has(lead.id) && (
+                                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                    )}
+                                                </div>
                                                 <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 group-hover:bg-emerald-100 group-hover:text-emerald-600 transition-all font-black">
                                                     {lead.name.charAt(0).toUpperCase()}
                                                 </div>

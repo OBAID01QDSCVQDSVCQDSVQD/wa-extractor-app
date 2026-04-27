@@ -55,7 +55,7 @@ export const connectWA = async () => {
 
     const client = new Client({
         authStrategy: new LocalAuth({
-            clientId: "sdk-final-" + Date.now()
+            clientId: "sdk-final"
         }),
         puppeteer: {
             executablePath: executablePath || undefined,
@@ -142,7 +142,7 @@ export const extractLeads = async () => {
                 id: contact.id._serialized,
                 name: contact.name || contact.pushname || 'Unknown',
                 number: contact.id.user,
-                timestamp: 0 // Contacts might not have a timestamp
+                timestamp: 0 
             });
         }
     }
@@ -187,7 +187,6 @@ export const logoutWA = async () => {
     global.waQrCode = null;
     global.waLeads = [];
     
-    // Cleanup local auth folder if exists
     const authPath = './.wwebjs_auth';
     if (fs.existsSync(authPath)) {
         fs.rmSync(authPath, { recursive: true, force: true });
