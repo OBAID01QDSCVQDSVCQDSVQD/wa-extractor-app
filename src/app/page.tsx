@@ -130,28 +130,27 @@ export default function Home() {
 
     const sendSMS = async () => {
         if (!smsMessage) return alert('Please enter a message');
-        
-        let recipients = [];
-        if (selectedIds.size > 0) {
-            recipients = leads.filter(l => selectedIds.has(l.id));
-        } else {
-            const confirmBulk = confirm(`⚠️ ATTENTION: No specific leads selected. Do you want to send this to ALL ${filteredLeads.length} filtered leads? \n\nThis might be expensive!`);
-            if (!confirmBulk) return;
-            recipients = filteredLeads;
-        }
-
+        const recipients = leads.filter(l => selectedIds.size > 0 ? selectedIds.has(l.id) : filteredLeads.some(fl => fl.id === l.id));
         if (recipients.length === 0) return alert('No numbers to send to');
         
-        const finalCheck = confirm(`FINAL VERIFICATION:\nTarget: ${recipients.length} recipients\nMessage: "${smsMessage.substring(0, 30)}..."\n\nProceed with sending?`);
+        const bulkCount = recipients.length;
+        if (selectedIds.size === 0) {
+            const confirmBulk = confirm(`⚠️ ATTENTION: No specific leads selected. Do you want to send this to ALL ${bulkCount} filtered leads? \n\nThis might be expensive!`);
+            if (!confirmBulk) return;
+        }
+
+        const finalCheck = confirm(`FINAL VERIFICATION:\nTarget: ${bulkCount} recipients\nMessage: "${smsMessage.substring(0, 30)}..."\n\nProceed with sending?`);
         if (!finalCheck) return;
 
         setSendingSms(true);
-        setSmsProgress({ total: recipients.length, sent: 0, success: 0, failed: 0 });
+        let successCount = 0;
+        let failedCount = 0;
+        let sentCount = 0;
+
+        setSmsProgress({ total: bulkCount, sent: 0, success: 0, failed: 0 });
 
         const chunkSize = 50;
-        const total = recipients.length;
-
-        for (let i = 0; i < total; i += chunkSize) {
+        for (let i = 0; i < bulkCount; i += chunkSize) {
             const chunk = recipients.slice(i, i + chunkSize);
             try {
                 const res = await fetch('/api/sms', {
@@ -165,35 +164,23 @@ export default function Home() {
                 const data = await res.json();
                 
                 if (data.success) {
-                    setSmsProgress(prev => prev ? { 
-                        ...prev, 
-                        sent: prev.sent + chunk.length,
-                        success: prev.success + chunk.length 
-                    } : null);
+                    successCount += chunk.length;
                 } else {
-                    setSmsProgress(prev => prev ? { 
-                        ...prev, 
-                        sent: prev.sent + chunk.length,
-                        failed: prev.failed + chunk.length 
-                    } : null);
+                    failedCount += chunk.length;
+                    console.error('WinSMS Error:', data.error);
                 }
             } catch (err) {
-                setSmsProgress(prev => prev ? { 
-                    ...prev, 
-                    sent: prev.sent + chunk.length,
-                    failed: prev.failed + chunk.length 
-                } : null);
+                failedCount += chunk.length;
             }
+            sentCount += chunk.length;
+            setSmsProgress({ total: bulkCount, sent: sentCount, success: successCount, failed: failedCount });
         }
 
         setSendingSms(false);
         setTimeout(() => {
-            const final = smsProgress;
-            if (final) {
-                alert(`Campaign finished!\nTotal: ${final.total}\nSuccess: ${final.success}\nFailed: ${final.failed}`);
-            }
+            alert(`Campaign finished!\n-------------------\nTotal: ${bulkCount}\nSuccess: ${successCount}\nFailed: ${failedCount}`);
             setSmsProgress(null);
-            setSmsMessage('');
+            if (successCount > 0) setSmsMessage('');
         }, 500);
     };
 
