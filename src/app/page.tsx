@@ -130,9 +130,20 @@ export default function Home() {
 
     const sendSMS = async () => {
         if (!smsMessage) return alert('Please enter a message');
-        const recipients = leads.filter(l => selectedIds.size > 0 ? selectedIds.has(l.id) : filteredLeads.some(fl => fl.id === l.id));
+        
+        let recipients = [];
+        if (selectedIds.size > 0) {
+            recipients = leads.filter(l => selectedIds.has(l.id));
+        } else {
+            const confirmBulk = confirm(`⚠️ ATTENTION: No specific leads selected. Do you want to send this to ALL ${filteredLeads.length} filtered leads? \n\nThis might be expensive!`);
+            if (!confirmBulk) return;
+            recipients = filteredLeads;
+        }
+
         if (recipients.length === 0) return alert('No numbers to send to');
-        if (!confirm(`Send this SMS to ${recipients.length} numbers?`)) return;
+        
+        const finalCheck = confirm(`FINAL VERIFICATION:\nTarget: ${recipients.length} recipients\nMessage: "${smsMessage.substring(0, 30)}..."\n\nProceed with sending?`);
+        if (!finalCheck) return;
 
         setSendingSms(true);
         setSmsProgress({ total: recipients.length, sent: 0, success: 0, failed: 0 });
