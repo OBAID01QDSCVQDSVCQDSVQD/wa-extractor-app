@@ -38,6 +38,15 @@ export async function POST(req: Request) {
         });
 
         const data = await response.json();
+        console.log('WinSMS Response:', data);
+
+        if (data.status === 'error' || data.error || !response.ok) {
+            return NextResponse.json({ 
+                success: false, 
+                error: data.message || data.error || 'WinSMS API Error',
+                details: data 
+            }, { status: 400 });
+        }
         
         return NextResponse.json({ success: true, data });
     } catch (error: any) {

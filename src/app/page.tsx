@@ -188,7 +188,10 @@ export default function Home() {
 
         setSendingSms(false);
         setTimeout(() => {
-            alert(`Campaign finished!\nTotal: ${total}\nSuccess: ${total}\nFailed: 0`);
+            const final = smsProgress;
+            if (final) {
+                alert(`Campaign finished!\nTotal: ${final.total}\nSuccess: ${final.success}\nFailed: ${final.failed}`);
+            }
             setSmsProgress(null);
             setSmsMessage('');
         }, 500);
