@@ -30,18 +30,27 @@ export const connectWA = async () => {
     global.waStatus = 'connecting';
     global.waQrCode = null;
 
+    const username = process.env.USERNAME || process.env.USER || 'OBAID';
     const possiblePaths = [
         'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+        `C:\\Users\\${username}\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe`,
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
     ];
     
+    console.log('Searching for Chrome/Edge in:', possiblePaths);
     let executablePath = '';
     for (const p of possiblePaths) {
         if (fs.existsSync(p)) {
             executablePath = p;
+            console.log('Found executable at:', p);
             break;
         }
+    }
+
+    if (!executablePath) {
+        console.warn('⚠️ No Chrome or Edge found in common paths. Trying default puppeteer...');
     }
 
     const client = new Client({
