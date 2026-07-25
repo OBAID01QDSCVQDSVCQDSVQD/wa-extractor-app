@@ -153,7 +153,7 @@ export const extractLeads = async () => {
         if (chat.isGroup) continue;
 
         try {
-            const messages = await chat.fetchMessages({ limit: 50 });
+            const messages = await chat.fetchMessages({ limit: Infinity });
             const inboundMessages = messages.filter((message: any) => !message.fromMe);
             if (inboundMessages.length === 0) continue;
 
