@@ -10,6 +10,7 @@ interface Lead {
     source: string;
     timestamp: number;
     inbound: true;
+    isSaved: boolean | null;
 }
 
 export default function Home() {
@@ -18,6 +19,7 @@ export default function Home() {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [fromDate, setFromDate] = useState<string>('');
     const [toDate, setToDate] = useState<string>('');
+    const [savedFilter, setSavedFilter] = useState<'all' | 'saved' | 'unsaved'>('all');
     const [countryPrefix, setCountryPrefix] = useState<string>('');
     const [smsMessage, setSmsMessage] = useState<string>('');
     const [sendingSms, setSendingSms] = useState<boolean>(false);
@@ -28,6 +30,8 @@ export default function Home() {
     const [smsProgress, setSmsProgress] = useState<{ total: number; sent: number; success: number; failed: number } | null>(null);
 
     const filteredLeads = leads.filter(lead => {
+        if (savedFilter === 'saved' && lead.isSaved !== true) return false;
+        if (savedFilter === 'unsaved' && lead.isSaved !== false) return false;
         if (countryPrefix && !lead.number.startsWith(countryPrefix)) return false;
         if (!fromDate && !toDate) return true;
         if (lead.timestamp === 0) return !fromDate && !toDate;
@@ -106,11 +110,12 @@ export default function Home() {
     };
 
     const downloadCSV = () => {
-        const headers = ['Name', 'Number', 'Source', 'Date'];
+        const headers = ['Name', 'Number', 'Source', 'Saved', 'Date'];
         const rows = filteredLeads.map(l => [
             l.name, 
             l.number, 
             l.source, 
+            l.isSaved === null ? 'Unknown' : l.isSaved ? 'Yes' : 'No',
             l.timestamp > 0 ? new Date(l.timestamp).toLocaleDateString() : 'N/A'
         ]);
         const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
@@ -135,6 +140,7 @@ export default function Home() {
                 source: lead.source,
                 timestamp: lead.timestamp,
                 inbound: true,
+                isSaved: lead.isSaved,
             })),
         };
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -325,6 +331,23 @@ export default function Home() {
                             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Filters</span>
                             
                             <div className="space-y-3">
+                                <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
+                                    {(['all', 'unsaved', 'saved'] as const).map((value) => (
+                                        <button
+                                            key={value}
+                                            type="button"
+                                            onClick={() => setSavedFilter(value)}
+                                            className={`min-w-0 rounded-lg px-2 py-2 text-[10px] font-bold uppercase transition-colors ${
+                                                savedFilter === value
+                                                    ? 'bg-white text-emerald-600 shadow-sm'
+                                                    : 'text-slate-500 hover:text-slate-900'
+                                            }`}
+                                        >
+                                            {value}
+                                        </button>
+                                    ))}
+                                </div>
+
                                 <div className="space-y-1">
                                     <span className="text-[10px] text-slate-400 font-bold ml-1">COUNTRY PREFIX</span>
                                     <input 
@@ -423,7 +446,18 @@ export default function Home() {
                                                 </div>
                                                 <div>
                                                     <h3 className="font-bold text-slate-900 group-hover:text-emerald-600 transition-all">{lead.name === 'Unknown' ? lead.number : lead.name}</h3>
-                                                    <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mt-1">{lead.source}</p>
+                                                    <div className="mt-1 flex items-center gap-2">
+                                                        <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">{lead.source}</p>
+                                                        <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                                                            lead.isSaved === true
+                                                                ? 'bg-blue-50 text-blue-600'
+                                                                : lead.isSaved === false
+                                                                    ? 'bg-amber-50 text-amber-600'
+                                                                    : 'bg-slate-100 text-slate-500'
+                                                        }`}>
+                                                            {lead.isSaved === true ? 'Saved' : lead.isSaved === false ? 'Unsaved' : 'Unknown'}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div className="text-right">

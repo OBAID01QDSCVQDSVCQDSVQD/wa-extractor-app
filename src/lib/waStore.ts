@@ -147,19 +147,16 @@ export const extractLeads = async () => {
 
     const leadsMap = new Map();
 
-    // Only retain unsaved individual contacts who sent at least one message.
-    // Groups, saved contacts and address-book-only contacts are not ad leads.
+    // Retain every individual contact who sent at least one message. Saved
+    // status is returned as metadata so users can filter after extraction.
     for (const chat of chats) {
         if (chat.isGroup) continue;
 
         try {
-            const messages = await chat.fetchMessages({ limit: Infinity });
-            const inboundMessages = messages.filter((message: any) => !message.fromMe);
+            const inboundMessages = await chat.fetchMessages({ limit: 1, fromMe: false });
             if (inboundMessages.length === 0) continue;
 
             const contact = await chat.getContact().catch(() => null);
-            if (!contact || contact.isMyContact) continue;
-
             const contactId = contact?.id?._serialized;
             const chatId = chat.id?._serialized;
             let phoneId = [contactId, chatId].find((id) =>
@@ -189,7 +186,7 @@ export const extractLeads = async () => {
                 timestamp: latestInboundTimestamp || Date.now(),
                 source: 'INDIVIDUAL CHAT',
                 inbound: true,
-                isSaved: !!contact?.isMyContact,
+                isSaved: contact ? !!contact.isMyContact : null,
             });
         } catch {
             skippedChats += 1;
