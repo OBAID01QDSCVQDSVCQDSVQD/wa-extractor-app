@@ -147,6 +147,20 @@ export const extractLeads = async () => {
 
     const leadsMap = new Map();
 
+    const resolvePhoneId = async (ids: string[]) => {
+        let phoneId = ids.find((id) => id.endsWith('@c.us') || id.endsWith('@s.whatsapp.net'));
+
+        if (!phoneId) {
+            const lidIds = Array.from(new Set(ids.filter((id) => id.endsWith('@lid'))));
+            if (lidIds.length > 0) {
+                const mappings = await global.waClient.getContactLidAndPhone(lidIds).catch(() => []);
+                phoneId = mappings.find((mapping: any) => mapping?.pn)?.pn;
+            }
+        }
+
+        return phoneId || null;
+    };
+
     // Retain every individual chat with a resolvable phone number. Users can
     // filter later by date and saved/unsaved status in the UI.
     for (const chat of chats) {
@@ -157,16 +171,7 @@ export const extractLeads = async () => {
             const contactId = contact?.id?._serialized;
             const chatId = chat.id?._serialized;
             const ids = [contactId, chatId].filter((id): id is string => typeof id === 'string');
-
-            let phoneId = ids.find((id) => id.endsWith('@c.us') || id.endsWith('@s.whatsapp.net'));
-
-            if (!phoneId) {
-                const lidIds = Array.from(new Set(ids.filter((id) => id.endsWith('@lid'))));
-                if (lidIds.length > 0) {
-                    const mappings = await global.waClient.getContactLidAndPhone(lidIds).catch(() => []);
-                    phoneId = mappings.find((mapping: any) => mapping?.pn)?.pn;
-                }
-            }
+            const phoneId = await resolvePhoneId(ids);
 
             const fallbackNumber = String(contact?.number || '').replace(/\D/g, '');
             const realNumber = phoneId
@@ -192,8 +197,73 @@ export const extractLeads = async () => {
         }
     }
 
+    let skippedCalls = 0;
+    try {
+        const callEntries = await global.waClient.pupPage.evaluate(() => {
+            const whatsappWindow = window as any;
+            const callCollection = whatsappWindow.require('WAWebCallCollection');
+            if (!callCollection) return [];
+
+            const mapKey = Object.keys(callCollection).find(
+                (key) => callCollection[key] instanceof Map,
+            );
+            if (!mapKey) return [];
+
+            const callMap = callCollection[mapKey] as Map<any, any>;
+            return Array.from(callMap.values()).map((call: any) => ({
+                peerJid:
+                    call?.peerJid?._serialized ||
+                    call?.peerJid?.toString?.() ||
+                    '',
+                isGroup: !!call?.isGroup,
+                outgoing: !!call?.outgoing,
+                offerTime: Number(
+                    call?.offerTime || call?.senderEpochTimestampMs || call?.t || 0,
+                ),
+            }));
+        });
+
+        for (const call of callEntries) {
+            if (!call || call.isGroup || call.outgoing) continue;
+
+            try {
+                const callIds = [call.peerJid].filter((id): id is string => typeof id === 'string' && id.length > 0);
+                if (callIds.length === 0) continue;
+
+                const phoneId = await resolvePhoneId(callIds);
+                const realNumber = phoneId ? phoneId.split('@')[0] : '';
+                if (!/^\d{7,15}$/.test(realNumber)) continue;
+
+                const callTimestampMs = call.offerTime > 0 ? call.offerTime * 1000 : Date.now();
+                const existingLead = leadsMap.get(realNumber);
+                if (existingLead) {
+                    existingLead.timestamp = Math.max(existingLead.timestamp || 0, callTimestampMs);
+                    if (!String(existingLead.source).includes('CALL LOG')) {
+                        existingLead.source = `${existingLead.source} + CALL LOG`;
+                    }
+                    leadsMap.set(realNumber, existingLead);
+                } else {
+                    leadsMap.set(realNumber, {
+                        id: call.peerJid || `call-${realNumber}`,
+                        name: 'Unknown',
+                        number: realNumber,
+                        timestamp: callTimestampMs,
+                        source: 'CALL LOG',
+                        inbound: true,
+                        isSaved: null,
+                    });
+                }
+            } catch {
+                skippedCalls += 1;
+            }
+        }
+    } catch {
+        skippedCalls += 1;
+    }
+
     const uniqueLeads = Array.from(leadsMap.values());
     if (skippedChats > 0) console.warn(`Skipped ${skippedChats} unreadable WhatsApp chat(s)`);
+    if (skippedCalls > 0) console.warn(`Skipped ${skippedCalls} WhatsApp call log item(s)`);
     global.waLeads = uniqueLeads;
     return uniqueLeads;
 }
