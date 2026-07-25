@@ -18,7 +18,6 @@ export default function Home() {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [fromDate, setFromDate] = useState<string>('');
     const [toDate, setToDate] = useState<string>('');
-    const [showUnsaved, setShowUnsaved] = useState<boolean>(false);
     const [countryPrefix, setCountryPrefix] = useState<string>('');
     const [smsMessage, setSmsMessage] = useState<string>('');
     const [sendingSms, setSendingSms] = useState<boolean>(false);
@@ -29,10 +28,6 @@ export default function Home() {
     const [smsProgress, setSmsProgress] = useState<{ total: number; sent: number; success: number; failed: number } | null>(null);
 
     const filteredLeads = leads.filter(lead => {
-        if (showUnsaved) {
-            const isSaved = lead.name !== 'Unknown' && !lead.name.startsWith('+');
-            if (isSaved) return false;
-        }
         if (countryPrefix && !lead.number.startsWith(countryPrefix)) return false;
         if (!fromDate && !toDate) return true;
         if (lead.timestamp === 0) return !fromDate && !toDate;
@@ -330,16 +325,6 @@ export default function Home() {
                             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Filters</span>
                             
                             <div className="space-y-3">
-                                <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 cursor-pointer group">
-                                    <span className="text-xs text-slate-500 group-hover:text-slate-900 transition-colors">Unsaved Only</span>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={showUnsaved}
-                                        onChange={(e) => setShowUnsaved(e.target.checked)}
-                                        className="w-4 h-4 rounded border-slate-300 bg-white text-emerald-500 focus:ring-emerald-500"
-                                    />
-                                </label>
-
                                 <div className="space-y-1">
                                     <span className="text-[10px] text-slate-400 font-bold ml-1">COUNTRY PREFIX</span>
                                     <input 

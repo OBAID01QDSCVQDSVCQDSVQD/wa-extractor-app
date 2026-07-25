@@ -147,8 +147,8 @@ export const extractLeads = async () => {
 
     const leadsMap = new Map();
 
-    // Only retain individual conversations where the contact sent at least one
-    // message. Groups and address-book-only contacts are never marketing leads.
+    // Only retain unsaved individual contacts who sent at least one message.
+    // Groups, saved contacts and address-book-only contacts are not ad leads.
     for (const chat of chats) {
         if (chat.isGroup) continue;
 
@@ -158,14 +158,26 @@ export const extractLeads = async () => {
             if (inboundMessages.length === 0) continue;
 
             const contact = await chat.getContact().catch(() => null);
-            let realNumber = contact?.number;
+            if (!contact || contact.isMyContact) continue;
 
-            if (!realNumber) {
-                realNumber = chat.name?.startsWith('+')
-                    ? chat.name.replace(/\D/g, '')
-                    : chat.id.user.split(':')[0];
+            const contactId = contact?.id?._serialized;
+            const chatId = chat.id?._serialized;
+            let phoneId = [contactId, chatId].find((id) =>
+                typeof id === 'string' && (id.endsWith('@c.us') || id.endsWith('@s.whatsapp.net'))
+            );
+
+            if (!phoneId && chatId?.endsWith('@lid')) {
+                const mappings = await global.waClient.getContactLidAndPhone([chatId]).catch(() => []);
+                phoneId = mappings[0]?.pn;
             }
-            if (!realNumber) continue;
+
+            if (!phoneId || (!phoneId.endsWith('@c.us') && !phoneId.endsWith('@s.whatsapp.net'))) {
+                skippedChats += 1;
+                continue;
+            }
+
+            const realNumber = phoneId.split('@')[0];
+            if (!/^\d{7,15}$/.test(realNumber)) continue;
 
             const latestInboundTimestamp = Math.max(
                 ...inboundMessages.map((message: any) => Number(message.timestamp || 0) * 1000)
