@@ -105,48 +105,56 @@ export const extractLeads = async () => {
     
     console.log('Extracting inbound individual leads...');
     
-    const chats = await global.waClient.getChats();
-    const contacts = await global.waClient.getContacts();
-    
-    const contactMap = new Map();
-    contacts.forEach((c: any) => contactMap.set(c.id._serialized, c));
+    let chats;
+    try {
+        chats = await global.waClient.getChats();
+    } catch (error) {
+        console.error('Unable to read WhatsApp chats:', error);
+        throw new Error('Session WhatsApp indisponible. Déconnectez puis reconnectez le compte.');
+    }
 
     const leadsMap = new Map();
+    let skippedChats = 0;
 
     // Only retain individual conversations where the contact sent at least one
     // message. Groups and address-book-only contacts are never marketing leads.
     for (const chat of chats) {
         if (chat.isGroup) continue;
 
-        const messages = await chat.fetchMessages({ limit: 50 });
-        const inboundMessages = messages.filter((message: any) => !message.fromMe);
-        if (inboundMessages.length === 0) continue;
+        try {
+            const messages = await chat.fetchMessages({ limit: 50 });
+            const inboundMessages = messages.filter((message: any) => !message.fromMe);
+            if (inboundMessages.length === 0) continue;
 
-        const contact = contactMap.get(chat.id._serialized);
-        let realNumber = contact?.number;
+            const contact = await chat.getContact().catch(() => null);
+            let realNumber = contact?.number;
 
-        if (!realNumber) {
-            realNumber = chat.name?.startsWith('+')
-                ? chat.name.replace(/\D/g, '')
-                : chat.id.user.split(':')[0];
+            if (!realNumber) {
+                realNumber = chat.name?.startsWith('+')
+                    ? chat.name.replace(/\D/g, '')
+                    : chat.id.user.split(':')[0];
+            }
+            if (!realNumber) continue;
+
+            const latestInboundTimestamp = Math.max(
+                ...inboundMessages.map((message: any) => Number(message.timestamp || 0) * 1000)
+            );
+            leadsMap.set(realNumber, {
+                id: chat.id._serialized,
+                name: contact?.name || contact?.pushname || chat.name || 'Unknown',
+                number: realNumber,
+                timestamp: latestInboundTimestamp || Date.now(),
+                source: 'INDIVIDUAL CHAT',
+                inbound: true,
+                isSaved: !!contact?.isMyContact,
+            });
+        } catch {
+            skippedChats += 1;
         }
-        if (!realNumber) continue;
-
-        const latestInboundTimestamp = Math.max(
-            ...inboundMessages.map((message: any) => Number(message.timestamp || 0) * 1000)
-        );
-        leadsMap.set(realNumber, {
-            id: chat.id._serialized,
-            name: contact?.name || contact?.pushname || chat.name || 'Unknown',
-            number: realNumber,
-            timestamp: latestInboundTimestamp || Date.now(),
-            source: 'INDIVIDUAL CHAT',
-            inbound: true,
-            isSaved: !!contact?.isMyContact,
-        });
     }
 
     const uniqueLeads = Array.from(leadsMap.values());
+    if (skippedChats > 0) console.warn(`Skipped ${skippedChats} unreadable WhatsApp chat(s)`);
     global.waLeads = uniqueLeads;
     return uniqueLeads;
 }
