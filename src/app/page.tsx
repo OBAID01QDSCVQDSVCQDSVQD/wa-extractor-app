@@ -9,6 +9,7 @@ interface Lead {
     number: string;
     source: string;
     timestamp: number;
+    inbound: true;
 }
 
 export default function Home() {
@@ -126,6 +127,29 @@ export default function Home() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    };
+
+    const downloadJSON = () => {
+        const payload = {
+            exportedAt: new Date().toISOString(),
+            leads: filteredLeads.map((lead) => ({
+                id: lead.id,
+                name: lead.name,
+                number: lead.number,
+                source: lead.source,
+                timestamp: lead.timestamp,
+                inbound: true,
+            })),
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.download = `wa_inbound_leads_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     const sendSMS = async () => {
@@ -298,15 +322,6 @@ export default function Home() {
                                 </svg>
                                 Leads Manager
                             </button>
-                            <button 
-                                onClick={() => setActiveTab('sms')}
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold text-sm ${activeTab === 'sms' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                                </svg>
-                                SMS Campaign
-                            </button>
                         </nav>
 
                         {/* Filters in Sidebar */}
@@ -379,15 +394,20 @@ export default function Home() {
                             </div>
                             
                             {leads.length > 0 && (activeTab === 'leads') && (
-                                <button 
-                                    onClick={downloadCSV}
-                                    className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black hover:bg-slate-800 transition-all shadow-md"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
-                                    EXPORT CSV
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={downloadJSON}
+                                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black hover:bg-emerald-700 transition-all shadow-md"
+                                    >
+                                        EXPORT JSON CRM
+                                    </button>
+                                    <button
+                                        onClick={downloadCSV}
+                                        className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black hover:bg-slate-800 transition-all shadow-md"
+                                    >
+                                        EXPORT CSV
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </header>
