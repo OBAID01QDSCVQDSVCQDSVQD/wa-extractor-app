@@ -146,19 +146,49 @@ export const extractLeads = async () => {
     }
 
     const leadsMap = new Map();
+    const lidPhoneCache = new Map<string, string | null>();
 
     const resolvePhoneId = async (ids: string[]) => {
-        let phoneId = ids.find((id) => id.endsWith('@c.us') || id.endsWith('@s.whatsapp.net'));
+        const directId = ids.find((id) => id.endsWith('@c.us') || id.endsWith('@s.whatsapp.net'));
+        if (directId) return directId;
 
-        if (!phoneId) {
-            const lidIds = Array.from(new Set(ids.filter((id) => id.endsWith('@lid'))));
-            if (lidIds.length > 0) {
-                const mappings = await global.waClient.getContactLidAndPhone(lidIds).catch(() => []);
-                phoneId = mappings.find((mapping: any) => mapping?.pn)?.pn;
+        const lidIds = Array.from(new Set(ids.filter((id) => id.endsWith('@lid'))));
+        const uncachedLidIds = lidIds.filter((id) => !lidPhoneCache.has(id));
+
+        if (uncachedLidIds.length > 0) {
+            const mappings = await global.waClient.getContactLidAndPhone(uncachedLidIds).catch(() => []);
+            for (const id of uncachedLidIds) lidPhoneCache.set(id, null);
+            for (const mapping of mappings) {
+                if (mapping?.lid) lidPhoneCache.set(mapping.lid, mapping.pn || null);
             }
         }
 
-        return phoneId || null;
+        for (const lidId of lidIds) {
+            const cached = lidPhoneCache.get(lidId);
+            if (cached) return cached;
+        }
+
+        return null;
+    };
+
+    const mergeLead = (realNumber: string, sourceLabel: string, lead: any) => {
+        const existingLead = leadsMap.get(realNumber);
+        if (existingLead) {
+            if (!String(existingLead.source).includes(sourceLabel)) {
+                existingLead.source = `${existingLead.source} + ${sourceLabel}`;
+            }
+            if (lead.timestamp > (existingLead.timestamp || 0)) {
+                existingLead.timestamp = lead.timestamp;
+            }
+            if (existingLead.isSaved === null && lead.isSaved !== null) {
+                existingLead.isSaved = lead.isSaved;
+            }
+            if (existingLead.name === 'Unknown' && lead.name !== 'Unknown') {
+                existingLead.name = lead.name;
+            }
+        } else {
+            leadsMap.set(realNumber, lead);
+        }
     };
 
     // Retain every individual chat with a resolvable phone number. Users can
@@ -183,7 +213,7 @@ export const extractLeads = async () => {
             const chatTimestampMs = Number(chat.timestamp || 0) > 0
                 ? Number(chat.timestamp) * 1000
                 : Date.now();
-            leadsMap.set(realNumber, {
+            mergeLead(realNumber, 'INDIVIDUAL CHAT', {
                 id: chat.id._serialized,
                 name: contact?.name || contact?.pushname || chat.name || 'Unknown',
                 number: realNumber,
@@ -195,6 +225,76 @@ export const extractLeads = async () => {
         } catch {
             skippedChats += 1;
         }
+    }
+
+    // Group participants: everyone in every group you're a member of. Not
+    // necessarily people who contacted you directly, kept as an opt-in source
+    // filterable in the UI.
+    let skippedGroupMembers = 0;
+    for (const chat of chats) {
+        if (!chat.isGroup) continue;
+
+        try {
+            const participants = chat.participants || chat.groupMetadata?.participants || [];
+            for (const participant of participants) {
+                try {
+                    const participantId = participant?.id?._serialized;
+                    if (!participantId) continue;
+
+                    const phoneId = await resolvePhoneId([participantId]);
+                    const realNumber = phoneId ? phoneId.split('@')[0] : '';
+                    if (!/^\d{7,15}$/.test(realNumber)) continue;
+
+                    mergeLead(realNumber, `GROUP: ${chat.name || 'Unknown'}`, {
+                        id: participantId,
+                        name: 'Unknown',
+                        number: realNumber,
+                        timestamp: 0,
+                        source: `GROUP: ${chat.name || 'Unknown'}`,
+                        inbound: false,
+                        isSaved: null,
+                    });
+                } catch {
+                    skippedGroupMembers += 1;
+                }
+            }
+        } catch {
+            skippedGroupMembers += 1;
+        }
+    }
+
+    // Full address book: every saved contact, regardless of whether they ever
+    // messaged you. Kept as an opt-in source filterable in the UI.
+    let skippedContacts = 0;
+    try {
+        const contacts = await global.waClient.getContacts();
+        for (const contact of contacts) {
+            try {
+                if (contact.isGroup || contact.isMe) continue;
+
+                const contactId = contact?.id?._serialized;
+                if (!contactId) continue;
+
+                const phoneId = await resolvePhoneId([contactId]);
+                const fallbackNumber = String(contact?.number || '').replace(/\D/g, '');
+                const realNumber = phoneId ? phoneId.split('@')[0] : fallbackNumber;
+                if (!/^\d{7,15}$/.test(realNumber)) continue;
+
+                mergeLead(realNumber, 'ADDRESS BOOK', {
+                    id: contactId,
+                    name: contact.name || contact.pushname || 'Unknown',
+                    number: realNumber,
+                    timestamp: 0,
+                    source: 'ADDRESS BOOK',
+                    inbound: false,
+                    isSaved: !!contact.isMyContact,
+                });
+            } catch {
+                skippedContacts += 1;
+            }
+        }
+    } catch {
+        skippedContacts += 1;
     }
 
     let skippedCalls = 0;
@@ -235,24 +335,15 @@ export const extractLeads = async () => {
                 if (!/^\d{7,15}$/.test(realNumber)) continue;
 
                 const callTimestampMs = call.offerTime > 0 ? call.offerTime * 1000 : Date.now();
-                const existingLead = leadsMap.get(realNumber);
-                if (existingLead) {
-                    existingLead.timestamp = Math.max(existingLead.timestamp || 0, callTimestampMs);
-                    if (!String(existingLead.source).includes('CALL LOG')) {
-                        existingLead.source = `${existingLead.source} + CALL LOG`;
-                    }
-                    leadsMap.set(realNumber, existingLead);
-                } else {
-                    leadsMap.set(realNumber, {
-                        id: call.peerJid || `call-${realNumber}`,
-                        name: 'Unknown',
-                        number: realNumber,
-                        timestamp: callTimestampMs,
-                        source: 'CALL LOG',
-                        inbound: true,
-                        isSaved: null,
-                    });
-                }
+                mergeLead(realNumber, 'CALL LOG', {
+                    id: call.peerJid || `call-${realNumber}`,
+                    name: 'Unknown',
+                    number: realNumber,
+                    timestamp: callTimestampMs,
+                    source: 'CALL LOG',
+                    inbound: true,
+                    isSaved: null,
+                });
             } catch {
                 skippedCalls += 1;
             }
@@ -263,6 +354,8 @@ export const extractLeads = async () => {
 
     const uniqueLeads = Array.from(leadsMap.values());
     if (skippedChats > 0) console.warn(`Skipped ${skippedChats} unreadable WhatsApp chat(s)`);
+    if (skippedGroupMembers > 0) console.warn(`Skipped ${skippedGroupMembers} unresolved group member(s)`);
+    if (skippedContacts > 0) console.warn(`Skipped ${skippedContacts} unresolved address book contact(s)`);
     if (skippedCalls > 0) console.warn(`Skipped ${skippedCalls} WhatsApp call log item(s)`);
     global.waLeads = uniqueLeads;
     return uniqueLeads;

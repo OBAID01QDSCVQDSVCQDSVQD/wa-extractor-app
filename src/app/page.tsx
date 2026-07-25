@@ -20,6 +20,7 @@ export default function Home() {
     const [fromDate, setFromDate] = useState<string>('');
     const [toDate, setToDate] = useState<string>('');
     const [savedFilter, setSavedFilter] = useState<'all' | 'saved' | 'unsaved'>('all');
+    const [sourceFilters, setSourceFilters] = useState({ chats: true, calls: true, groups: true, addressBook: true });
     const [countryPrefix, setCountryPrefix] = useState<string>('');
     const [smsMessage, setSmsMessage] = useState<string>('');
     const [sendingSms, setSendingSms] = useState<boolean>(false);
@@ -29,7 +30,16 @@ export default function Home() {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [smsProgress, setSmsProgress] = useState<{ total: number; sent: number; success: number; failed: number } | null>(null);
 
+    const matchesSourceFilter = (source: string) => {
+        if (sourceFilters.chats && source.includes('INDIVIDUAL CHAT')) return true;
+        if (sourceFilters.calls && source.includes('CALL LOG')) return true;
+        if (sourceFilters.groups && source.includes('GROUP:')) return true;
+        if (sourceFilters.addressBook && source.includes('ADDRESS BOOK')) return true;
+        return false;
+    };
+
     const filteredLeads = leads.filter(lead => {
+        if (!matchesSourceFilter(lead.source)) return false;
         if (savedFilter === 'saved' && lead.isSaved !== true) return false;
         if (savedFilter === 'unsaved' && lead.isSaved !== false) return false;
         if (countryPrefix && !lead.number.startsWith(countryPrefix)) return false;
@@ -346,6 +356,28 @@ export default function Home() {
                                             {value}
                                         </button>
                                     ))}
+                                </div>
+
+                                <div className="space-y-1">
+                                    <span className="text-[10px] text-slate-400 font-bold ml-1">SOURCES</span>
+                                    <div className="space-y-1.5 pt-1">
+                                        {([
+                                            ['chats', 'Individual Chats'],
+                                            ['calls', 'Call Log'],
+                                            ['groups', 'Groups (members)'],
+                                            ['addressBook', 'Address Book'],
+                                        ] as const).map(([key, label]) => (
+                                            <label key={key} className="flex items-center gap-2 text-xs text-slate-600 font-semibold cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={sourceFilters[key]}
+                                                    onChange={(e) => setSourceFilters((prev) => ({ ...prev, [key]: e.target.checked }))}
+                                                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                                />
+                                                {label}
+                                            </label>
+                                        ))}
+                                    </div>
                                 </div>
 
                                 <div className="space-y-1">
