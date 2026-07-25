@@ -67,11 +67,14 @@ export const connectWA = async () => {
     global.waClient = client;
 
     client.on('qr', async (qr) => {
+        if (global.waClient !== client) return;
         console.log('✅ NEW QR CODE GENERATED');
+        global.waStatus = 'connecting';
         global.waQrCode = await QRCode.toDataURL(qr);
     });
 
     client.on('ready', () => {
+        if (global.waClient !== client) return;
         console.log('🚀 WHATSAPP READY!');
         global.waStatus = 'connected';
         global.waQrCode = null;
@@ -82,11 +85,13 @@ export const connectWA = async () => {
     });
 
     client.on('auth_failure', (msg) => {
+        if (global.waClient !== client) return;
         console.error('Auth failure:', msg);
         global.waStatus = 'disconnected';
     });
 
     client.on('disconnected', (reason) => {
+        if (global.waClient !== client) return;
         console.log('Client disconnected:', reason);
         global.waStatus = 'disconnected';
         global.waClient = null;
@@ -106,21 +111,41 @@ export const extractLeads = async () => {
     console.log('Extracting inbound individual leads...');
     
     let chats;
+    let skippedChats = 0;
     try {
         chats = await global.waClient.getChats();
     } catch (error) {
-        console.error('Unable to read WhatsApp chats:', error);
+        console.warn('Bulk chat loading failed, retrying individually:', error);
         try {
-            await global.waClient.destroy();
-        } catch {}
-        global.waClient = null;
-        global.waStatus = 'disconnected';
-        global.waQrCode = null;
-        throw new Error('Session WhatsApp indisponible. Déconnectez puis reconnectez le compte.');
+            const chatIds = await global.waClient.pupPage.evaluate(() => {
+                const whatsappWindow = window as any;
+                return whatsappWindow.require('WAWebCollections').Chat
+                    .getModelsArray()
+                    .map((chat: any) => chat.id._serialized);
+            });
+            chats = [];
+            for (const chatId of chatIds) {
+                try {
+                    const chat = await global.waClient.getChatById(chatId);
+                    if (chat) chats.push(chat);
+                } catch {
+                    skippedChats += 1;
+                }
+            }
+        } catch (fallbackError) {
+            console.error('Unable to read WhatsApp chats:', fallbackError);
+            const staleClient = global.waClient;
+            global.waClient = null;
+            global.waStatus = 'disconnected';
+            global.waQrCode = null;
+            try {
+                await staleClient.destroy();
+            } catch {}
+            throw new Error('Session WhatsApp indisponible. Déconnectez puis reconnectez le compte.');
+        }
     }
 
     const leadsMap = new Map();
-    let skippedChats = 0;
 
     // Only retain individual conversations where the contact sent at least one
     // message. Groups and address-book-only contacts are never marketing leads.
