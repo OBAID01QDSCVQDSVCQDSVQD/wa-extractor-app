@@ -23,12 +23,34 @@ export const getWAState = () => {
     }
 }
 
+const AUTH_PATH = './.wwebjs_auth';
+
+const wipeAuthFolder = () => {
+    try {
+        if (fs.existsSync(AUTH_PATH)) {
+            fs.rmSync(AUTH_PATH, { recursive: true, force: true });
+            console.log('Wiped stale WhatsApp auth folder');
+        }
+    } catch (e) {
+        console.warn('Unable to wipe auth folder:', e);
+    }
+};
+
 export const connectWA = async () => {
     if (global.waStatus === 'connected' || global.waStatus === 'connecting') return;
 
     console.log('--- Initializing WhatsApp Web Engine ---');
     global.waStatus = 'connecting';
     global.waQrCode = null;
+
+    // Clean up any leftover client from a previous failed attempt
+    if (global.waClient) {
+        const leftover = global.waClient;
+        global.waClient = null;
+        try {
+            await leftover.destroy();
+        } catch {}
+    }
 
     const username = process.env.USERNAME || process.env.USER || 'OBAID';
     const possiblePaths = [
@@ -66,6 +88,23 @@ export const connectWA = async () => {
 
     global.waClient = client;
 
+    // Watchdog: if neither a QR code nor a ready event arrives within 90s,
+    // the saved session is likely corrupt — destroy it and wipe auth so the
+    // next connect starts fresh with a new QR code.
+    const watchdog = setTimeout(async () => {
+        if (global.waClient !== client) return;
+        if (global.waStatus === 'connecting' && !global.waQrCode) {
+            console.warn('Connection stuck without QR — resetting session');
+            global.waClient = null;
+            global.waStatus = 'disconnected';
+            global.waQrCode = null;
+            try {
+                await client.destroy();
+            } catch {}
+            wipeAuthFolder();
+        }
+    }, 90_000);
+
     client.on('qr', async (qr) => {
         if (global.waClient !== client) return;
         console.log('✅ NEW QR CODE GENERATED');
@@ -75,6 +114,7 @@ export const connectWA = async () => {
 
     client.on('ready', () => {
         if (global.waClient !== client) return;
+        clearTimeout(watchdog);
         console.log('🚀 WHATSAPP READY!');
         global.waStatus = 'connected';
         global.waQrCode = null;
@@ -86,12 +126,17 @@ export const connectWA = async () => {
 
     client.on('auth_failure', (msg) => {
         if (global.waClient !== client) return;
+        clearTimeout(watchdog);
         console.error('Auth failure:', msg);
+        global.waClient = null;
         global.waStatus = 'disconnected';
+        global.waQrCode = null;
+        wipeAuthFolder();
     });
 
     client.on('disconnected', (reason) => {
         if (global.waClient !== client) return;
+        clearTimeout(watchdog);
         console.log('Client disconnected:', reason);
         global.waStatus = 'disconnected';
         global.waClient = null;
@@ -101,7 +146,15 @@ export const connectWA = async () => {
         await client.initialize();
     } catch (err) {
         console.error('Initialization error:', err);
-        global.waStatus = 'disconnected';
+        if (global.waClient === client) {
+            clearTimeout(watchdog);
+            global.waClient = null;
+            global.waStatus = 'disconnected';
+            global.waQrCode = null;
+            try {
+                await client.destroy();
+            } catch {}
+        }
     }
 }
 
@@ -374,8 +427,5 @@ export const logoutWA = async () => {
     global.waQrCode = null;
     global.waLeads = [];
     
-    const authPath = './.wwebjs_auth';
-    if (fs.existsSync(authPath)) {
-        fs.rmSync(authPath, { recursive: true, force: true });
-    }
+    wipeAuthFolder();
 }
