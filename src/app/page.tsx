@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY || '';
 
 interface Lead {
     id: string;
@@ -29,6 +31,91 @@ export default function Home() {
     const [activeTab, setActiveTab] = useState<'leads' | 'sms'>('leads');
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [smsProgress, setSmsProgress] = useState<{ total: number; sent: number; success: number; failed: number } | null>(null);
+
+    // --- Auth (OTP SMS vers numéro admin fixe) ---
+    const [authed, setAuthed] = useState<boolean | null>(null);
+    const [otpSent, setOtpSent] = useState(false);
+    const [otpCode, setOtpCode] = useState('');
+    const [authBusy, setAuthBusy] = useState(false);
+    const [authError, setAuthError] = useState('');
+    const [turnstileToken, setTurnstileToken] = useState('');
+    const turnstileRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        fetch('/api/auth')
+            .then((res) => res.json())
+            .then((data) => setAuthed(!!data.authenticated))
+            .catch(() => setAuthed(false));
+    }, []);
+
+    useEffect(() => {
+        if (authed !== false || !TURNSTILE_SITE_KEY) return;
+        const w = window as any;
+        const renderWidget = () => {
+            if (turnstileRef.current && w.turnstile && !turnstileRef.current.hasChildNodes()) {
+                w.turnstile.render(turnstileRef.current, {
+                    sitekey: TURNSTILE_SITE_KEY,
+                    callback: (token: string) => setTurnstileToken(token),
+                    'expired-callback': () => setTurnstileToken(''),
+                });
+            }
+        };
+        if (w.turnstile) {
+            renderWidget();
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = 'https://challenges.cloudflare.com/turnstile/api.js?render=explicit';
+        script.async = true;
+        script.onload = renderWidget;
+        document.head.appendChild(script);
+    }, [authed]);
+
+    const requestOtpCode = async () => {
+        setAuthBusy(true);
+        setAuthError('');
+        try {
+            const res = await fetch('/api/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'request', turnstileToken }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setOtpSent(true);
+            } else {
+                setAuthError(data.error || 'Envoi du code impossible');
+            }
+        } catch {
+            setAuthError('Erreur réseau');
+        } finally {
+            setAuthBusy(false);
+        }
+    };
+
+    const submitOtpCode = async () => {
+        setAuthBusy(true);
+        setAuthError('');
+        try {
+            const res = await fetch('/api/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'verify', code: otpCode }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setAuthed(true);
+                setOtpCode('');
+                setOtpSent(false);
+            } else {
+                setAuthError(data.error || 'Code incorrect');
+            }
+        } catch {
+            setAuthError('Erreur réseau');
+        } finally {
+            setAuthBusy(false);
+        }
+    };
 
     const matchesSourceFilter = (source: string) => {
         if (sourceFilters.chats && source.includes('INDIVIDUAL CHAT')) return true;
@@ -62,6 +149,10 @@ export default function Home() {
     const fetchStatus = useCallback(async () => {
         try {
             const res = await fetch('/api/wa?action=status');
+            if (res.status === 401) {
+                setAuthed(false);
+                return;
+            }
             const data = await res.json();
             setStatus(data.status);
             setQrCode(data.qrCode);
@@ -74,9 +165,10 @@ export default function Home() {
     }, []);
 
     useEffect(() => {
+        if (authed !== true) return;
         const interval = setInterval(fetchStatus, 3000);
         return () => clearInterval(interval);
-    }, [fetchStatus]);
+    }, [fetchStatus, authed]);
 
     const handleConnect = async () => {
         setLoading(true);
@@ -241,6 +333,76 @@ export default function Home() {
         }
         setSelectedIds(newSelected);
     };
+
+    // --- Écran de connexion (OTP SMS) ---
+    if (authed !== true) {
+        return (
+            <main className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4 font-sans">
+                <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-200 shadow-sm p-8 space-y-6">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
+                            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h1 className="font-black text-slate-900 leading-tight">SDK EXTRACTOR</h1>
+                            <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Accès sécurisé</p>
+                        </div>
+                    </div>
+
+                    {authed === null ? (
+                        <p className="text-sm text-slate-400 text-center py-4">Vérification de la session...</p>
+                    ) : !otpSent ? (
+                        <>
+                            <p className="text-sm text-slate-500">
+                                Un code de connexion sera envoyé par SMS au numéro administrateur.
+                            </p>
+                            {TURNSTILE_SITE_KEY && <div ref={turnstileRef} className="flex justify-center" />}
+                            {authError && <p className="text-xs text-red-500 font-bold">{authError}</p>}
+                            <button
+                                onClick={requestOtpCode}
+                                disabled={authBusy || (!!TURNSTILE_SITE_KEY && !turnstileToken)}
+                                className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                {authBusy ? 'ENVOI...' : 'RECEVOIR LE CODE SMS'}
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-sm text-slate-500">
+                                Code envoyé par SMS. Saisissez-le ci-dessous (valide 5 minutes).
+                            </p>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={6}
+                                value={otpCode}
+                                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                                onKeyDown={(e) => { if (e.key === 'Enter' && otpCode.length === 6) submitOtpCode(); }}
+                                placeholder="______"
+                                className="w-full text-center text-2xl tracking-[0.5em] font-black bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-800 outline-none focus:border-emerald-500/50"
+                            />
+                            {authError && <p className="text-xs text-red-500 font-bold">{authError}</p>}
+                            <button
+                                onClick={submitOtpCode}
+                                disabled={authBusy || otpCode.length !== 6}
+                                className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                {authBusy ? 'VÉRIFICATION...' : 'SE CONNECTER'}
+                            </button>
+                            <button
+                                onClick={() => { setOtpSent(false); setOtpCode(''); setAuthError(''); setTurnstileToken(''); }}
+                                className="w-full py-2 text-xs text-slate-400 hover:text-slate-600 font-bold transition-all"
+                            >
+                                Renvoyer un code
+                            </button>
+                        </>
+                    )}
+                </div>
+            </main>
+        );
+    }
 
     return (
         <main className="min-h-screen bg-[#f8fafc] text-slate-700 font-sans selection:bg-emerald-500/20">

@@ -6,10 +6,10 @@ export interface SMSResult {
 
 export class WinSMS {
   private static BASE_URL = 'https://www.winsmspro.com/sms/sms/api';
-  private static API_KEY = "fTUG90ao7SI0En1o4Bz0b6g2Xkl1KR4JRHSZJq6KsggzAJKSRXXMUy8Ld18x";
+  private static API_KEY = process.env.WIN_SMS_API_KEY || "fTUG90ao7SI0En1o4Bz0b6g2Xkl1KR4JRHSZJq6KsggzAJKSRXXMUy8Ld18x";
   
   // WinSMS requires the Sender ID to be explicitly provided.
-  private static SENDER_ID = "SdkBatimant"; 
+  private static SENDER_ID = process.env.WIN_SMS_SENDER || "SdkBatimant"; 
 
   public static normalizeTunisianNumber(phone: string): string {
     const digits = String(phone).replace(/\D/g, '');
