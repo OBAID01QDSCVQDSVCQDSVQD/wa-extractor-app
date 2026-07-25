@@ -110,6 +110,12 @@ export const extractLeads = async () => {
         chats = await global.waClient.getChats();
     } catch (error) {
         console.error('Unable to read WhatsApp chats:', error);
+        try {
+            await global.waClient.destroy();
+        } catch {}
+        global.waClient = null;
+        global.waStatus = 'disconnected';
+        global.waQrCode = null;
         throw new Error('Session WhatsApp indisponible. Déconnectez puis reconnectez le compte.');
     }
 

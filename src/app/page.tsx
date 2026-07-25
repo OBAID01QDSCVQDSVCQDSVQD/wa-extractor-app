@@ -89,6 +89,7 @@ export default function Home() {
             if (data.success) {
                 setLeads(data.leads);
             } else {
+                await fetchStatus();
                 alert(data.error || 'Extraction failed');
             }
         } catch (err) {
