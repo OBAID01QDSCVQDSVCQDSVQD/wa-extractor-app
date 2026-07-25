@@ -373,7 +373,7 @@ export default function Home() {
                                 {activeTab === 'leads' ? 'Extracted Contacts' : 'SMS Campaign'}
                             </h2>
                             <span className="bg-emerald-100 text-emerald-600 text-[10px] font-black px-2 py-1 rounded-md">
-                                {filteredLeads.length} RESULTS
+                                {filteredLeads.length} UNIQUE NUMBERS
                             </span>
                             {activeTab === 'leads' && filteredLeads.length > 0 && (
                                 <button 
